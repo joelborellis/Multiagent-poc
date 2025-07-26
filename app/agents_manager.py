@@ -16,6 +16,7 @@ from agents import (
     TResponseInputItem,
     GuardrailFunctionOutput,
     input_guardrail,
+    WebSearchTool
 )
 
 # =========================
@@ -94,12 +95,24 @@ def create_news_agent(mcp_server):
         model_settings=ModelSettings(tool_choice="required"),
         handoff_description="A specialized agent for providing news updates and information.",
     )
+    
+# Define the news agent creation function first
+def create_results_agent():
+    """Create a sports results agent with WebSearchTool"""
+    return Agent(
+        name="Sports Results Agent",
+        instructions="You are a helpful agent that searches the web for sports results.",
+        tools=[WebSearchTool()],
+        model="gpt-4.1-mini",
+        handoff_description="A specialized agent for providing sports results realtime using web search.",
+    )
 
 # Define the triage agent creation function after the news agent
 def create_triage_agent(mcp_server):
     """Create a triage agent that can delegate to other agents"""
     # Create the news agent first so we can use it as a handoff
     news_agent = create_news_agent(mcp_server)
+    results_agent = create_results_agent()
     
     return Agent(
         name="Triage Agent",
@@ -110,7 +123,7 @@ def create_triage_agent(mcp_server):
             "You are a helpful triaging agent. You can use your tools to delegate questions to other appropriate agents."
         ),
         handoffs=[
-            news_agent,  # Use the news agent as a handoff
+            news_agent, results_agent  # Use the news agent and results agent as handoffs
         ],
         input_guardrails=[relevance_guardrail, jailbreak_guardrail],
     )
@@ -128,6 +141,10 @@ class AgentsManager:
         news_agent = create_news_agent(mcp_server)
         self.add_agent("news", news_agent)
         
+        # Create the results agent
+        results_agent = create_results_agent()
+        self.add_agent("results", results_agent)
+        
         # Create the triage agent
         triage_agent = create_triage_agent(mcp_server)
         self.add_agent("triage", triage_agent)
@@ -137,6 +154,7 @@ class AgentsManager:
         
         # Set up handoff relationships
         news_agent.handoffs.append(triage_agent)
+        results_agent.handoffs.append(triage_agent)
         
         return self
     

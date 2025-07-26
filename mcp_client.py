@@ -4,8 +4,8 @@ import asyncio
 
 
 async def main():
-    #url="https://echo-mcp.purplesand-ac2cef21.eastus2.azurecontainerapps.io/echo/mcp"
-    url="http://localhost:8000/mcp"
+    url="https://sports-mcp.ambitioussand-ba55d326.eastus2.azurecontainerapps.io/news/mcp/"
+    #url="http://localhost:8000/mcp/"
     # Connect to a streamable HTTP server
     async with streamablehttp_client(url=url) as (
         read_stream,
@@ -25,7 +25,7 @@ async def main():
                 print(f"  - {tool.name}: {tool.description}")
 
             # Call our calculator tool
-            result = await session.call_tool("echo", {"message": "This is a call to the echo tool"})
+            result = await session.call_tool("get_mlb_news", {"message": "This is a call to the echo tool"})
             print(f"{result.content[0].text}")
             
 if __name__ == "__main__":

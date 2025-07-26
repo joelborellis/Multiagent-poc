@@ -10,6 +10,7 @@ from typing import Optional, List, Dict, Any, AsyncGenerator
 import time
 from uuid import uuid4
 import json
+from dotenv import load_dotenv
 
 import os
 
@@ -24,6 +25,8 @@ from agents import (
 )
 from agents_manager import AgentsManager
 
+load_dotenv()
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -32,14 +35,23 @@ logger = logging.getLogger(__name__)
 # Create a lifespan to manage session manager
 @contextlib.asynccontextmanager
 async def lifespan(server: FastAPI):
+    # Check required environment variables
+    mcp_url = os.environ.get("MCP_SERVER_URL")
+    mcp_api_key = os.environ.get("MCP_API_KEY")
+    if not mcp_url or not mcp_api_key:
+        raise RuntimeError(
+            "Missing required environment variables: "
+            f"MCP_SERVER_URL={'set' if mcp_url else 'MISSING'}, "
+            f"MCP_API_KEY={'set' if mcp_api_key else 'MISSING'}"
+        )
     logger.info("Starting up - connecting to MCP server")
 
     # Create and store the MCP server connection in app state
     app.state.mcp_server = MCPServerStreamableHttp(
         name="StreamableHttp Container App Server",
         params={
-            "url": os.environ.get("MCP_SERVER_URL"),
-            "headers": {"x-api-key": os.environ.get("MCP_API_KEY")},
+            "url": mcp_url,
+            "headers": {"x-api-key": mcp_api_key},
         },
     )
 
@@ -288,7 +300,8 @@ async def generate_chat_stream(
                 # Stream the tool call event
                 stream_event = {
                     "type": "tool_call",
-                    "data": agent_event.model_dump()
+                    "data": f"Agent: {agent_event.agent}, Tool: {tool_name or 'unknown'}",
+                    #"data": agent_event.model_dump()
                 }
                 yield f"data: {json.dumps(stream_event)}\n\n"
                 
@@ -321,7 +334,8 @@ async def generate_chat_stream(
                 # Stream the tool output event
                 stream_event = {
                     "type": "tool_output",
-                    "data": agent_event.model_dump()
+                    #"data": agent_event.model_dump()
+                    "data": ' '.join(str(agent_event.model_dump()).split()[:5])
                 }
                 yield f"data: {json.dumps(stream_event)}\n\n"
 
@@ -342,7 +356,8 @@ async def generate_chat_stream(
             "timestamp": time.time()
         }
     }
-    yield f"data: {json.dumps(final_response)}\n\n"
+    yield f"data: {json.dumps(result.final_output)}\n\n"
+    #yield f"data: {json.dumps(final_response)}\n\n"
 
 
 @app.post("/chat")
