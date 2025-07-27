@@ -24,17 +24,7 @@ async def make_yahoo_request(url: str) -> dict[str, Any] | None:
             return feed
 
 
-def format_alert(news: dict) -> str:
-    """Format news to a readable string."""
-    return f"""
-        Type: {news.get("type")}
-        Headline: {news.get("headline")}
-        Description: {news.get("description")}
-        Link: {news.get("links", {}).get("web", "No link available").get("href", "No link available")}
-        """
-
-
-def format_alert_yahoo(entry: dict) -> str:
+def format_alert(entry: dict) -> str:
     """Format news to a readable string."""
     html = entry.content[0].value
     soup = BeautifulSoup(html, "html.parser")
@@ -78,7 +68,7 @@ async def get_cfb_news() -> str:
     if not feed:
         return "Unable to fetch articles or no articles found."
 
-    entries = [format_alert_yahoo(entry) for entry in feed.entries]
+    entries = [format_alert(entry) for entry in feed.entries]
     return "\n---\n".join(entries)
 
 
@@ -95,7 +85,7 @@ async def get_nfl_news() -> str:
     if not feed:
         return "Unable to fetch articles or no articles found."
 
-    entries = [format_alert_yahoo(entry) for entry in feed.entries]
+    entries = [format_alert(entry) for entry in feed.entries]
     return "\n---\n".join(entries)
 
 
@@ -112,7 +102,7 @@ async def get_mlb_news() -> str:
     if not feed:
         return "Unable to fetch articles or no articles found."
 
-    entries = [format_alert_yahoo(entry) for entry in feed.entries]
+    entries = [format_alert(entry) for entry in feed.entries]
     return "\n---\n".join(entries)
 
 
@@ -129,7 +119,7 @@ async def get_nhl_news() -> str:
     if not feed:
         return "Unable to fetch articles or no articles found."
 
-    entries = [format_alert_yahoo(entry) for entry in feed.entries]
+    entries = [format_alert(entry) for entry in feed.entries]
     return "\n---\n".join(entries)
 
 
@@ -147,7 +137,7 @@ async def get_nba_news() -> str:
     if not feed:
         return "Unable to fetch articles or no articles found."
 
-    entries = [format_alert_yahoo(entry) for entry in feed.entries]
+    entries = [format_alert(entry) for entry in feed.entries]
     return "\n---\n".join(entries)
 
 @sports_news_server.tool()
@@ -163,7 +153,7 @@ async def get_nascar_news() -> str:
     if not feed:
         return "Unable to fetch articles or no articles found."
 
-    entries = [format_alert_yahoo(entry) for entry in feed.entries]
+    entries = [format_alert(entry) for entry in feed.entries]
     return "\n---\n".join(entries)
 
 @sports_news_server.tool()
@@ -179,7 +169,7 @@ async def get_golf_news() -> str:
     if not feed:
         return "Unable to fetch articles or no articles found."
 
-    entries = [format_alert_yahoo(entry) for entry in feed.entries]
+    entries = [format_alert(entry) for entry in feed.entries]
     return "\n---\n".join(entries)
 
 if __name__ == "__main__":

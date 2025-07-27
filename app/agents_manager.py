@@ -88,7 +88,7 @@ async def jailbreak_guardrail(
 def create_news_agent(mcp_server):
     """Create a news assistant agent with the given MCP server"""
     return Agent(
-        name="News Assistant",
+        name="News Assistant Agent",
         instructions="You are a helpful assistant specializing in providing news updates and information.",
         model="gpt-4.1-mini",
         mcp_servers=[mcp_server],
@@ -102,8 +102,9 @@ def create_results_agent():
     return Agent(
         name="Sports Results Agent",
         instructions="You are a helpful agent that searches the web for sports results.",
-        tools=[WebSearchTool()],
         model="gpt-4.1-mini",
+        tools=[WebSearchTool()],
+        model_settings=ModelSettings(tool_choice="required"),
         handoff_description="A specialized agent for providing sports results realtime using web search.",
     )
 

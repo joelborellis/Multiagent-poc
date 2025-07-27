@@ -1,6 +1,6 @@
 # main.py
 import contextlib
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from .sports_news_server import sports_news_server
 import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,7 +19,7 @@ app = FastAPI(lifespan=lifespan)
 # CORS (only needed if you’re calling from a browser front-end)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],          # tighten in prod
+    allow_origins=["*"],  # tighten in prod
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

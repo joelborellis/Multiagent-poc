@@ -1,11 +1,17 @@
 from mcp.client.streamable_http import streamablehttp_client
 from mcp import ClientSession
 import asyncio
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 async def main():
-    url="https://sports-mcp.ambitioussand-ba55d326.eastus2.azurecontainerapps.io/news/mcp/"
-    #url="http://localhost:8000/mcp/"
+    url = os.environ.get("MCP_SERVER_URL")
+    if not url:
+        raise ValueError("MCP_SERVER_URL environment variable not set")
+
     # Connect to a streamable HTTP server
     async with streamablehttp_client(url=url) as (
         read_stream,
@@ -16,7 +22,7 @@ async def main():
         async with ClientSession(read_stream, write_stream) as session:
             # Initialize the connection
             await session.initialize()
-            
+
             print("getting session")
             # List available tools
             tools_result = await session.list_tools()
@@ -25,8 +31,9 @@ async def main():
                 print(f"  - {tool.name}: {tool.description}")
 
             # Call our calculator tool
-            result = await session.call_tool("get_mlb_news", {"message": "This is a call to the echo tool"})
+            result = await session.call_tool("get_mlb_news")
             print(f"{result.content[0].text}")
-            
+
+
 if __name__ == "__main__":
     asyncio.run(main())

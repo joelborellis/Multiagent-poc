@@ -37,12 +37,10 @@ logger = logging.getLogger(__name__)
 async def lifespan(server: FastAPI):
     # Check required environment variables
     mcp_url = os.environ.get("MCP_SERVER_URL")
-    mcp_api_key = os.environ.get("MCP_API_KEY")
-    if not mcp_url or not mcp_api_key:
+    if not mcp_url:
         raise RuntimeError(
             "Missing required environment variables: "
-            f"MCP_SERVER_URL={'set' if mcp_url else 'MISSING'}, "
-            f"MCP_API_KEY={'set' if mcp_api_key else 'MISSING'}"
+            f"MCP_SERVER_URL={'set' if mcp_url else 'MISSING'} "
         )
     logger.info("Starting up - connecting to MCP server")
 
@@ -50,8 +48,7 @@ async def lifespan(server: FastAPI):
     app.state.mcp_server = MCPServerStreamableHttp(
         name="StreamableHttp Container App Server",
         params={
-            "url": mcp_url,
-            "headers": {"x-api-key": mcp_api_key},
+            "url": mcp_url
         },
     )
 
@@ -207,7 +204,7 @@ async def generate_chat_stream(
     request: ChatRequest, agents_manager: AgentsManager
 ) -> AsyncGenerator[str, None]:
     """Async generator that yields SSE-formatted JSON data for streaming chat responses."""
-    
+
     logger.info(
         f"Streaming request conversation_id: {request.conversation_id} - Message: {request.message}"
     )
@@ -215,50 +212,25 @@ async def generate_chat_stream(
     # Get the specified agent or the default agent
     current_agent = agents_manager.get_agent(request.agent_id)
     agent_id = request.agent_id or agents_manager.default_agent_id
+    
+    logger.info(f"Agent loaded: {current_agent}")
+    logger.info(f"Agent ID: {agent_id}")
+    logger.info(f"Agent has input_guardrails: {hasattr(current_agent, 'input_guardrails') if current_agent else 'current_agent is None'}")
+    if current_agent and hasattr(current_agent, 'input_guardrails'):
+        logger.info(f"Number of input_guardrails: {len(current_agent.input_guardrails) if current_agent.input_guardrails else 0}")
 
     # Use one of the sports tools
     message = request.message
-    logger.info(f"\n\nRunning streamed: {message}")
+    logger.info(f"Running streamed: {message}")
 
     guardrail_checks: List[GuardrailCheck] = []
+    
+    # Run the streamed process
+    result = Runner.run_streamed(
+        starting_agent=current_agent, input=message, max_turns=30
+    )
 
-    try:
-        result = Runner.run_streamed(
-            starting_agent=current_agent, input=message, max_turns=30
-        )
-    except InputGuardrailTripwireTriggered as e:
-        failed = e.guardrail_result.guardrail
-        gr_output = e.guardrail_result.output.output_info
-        gr_reasoning = getattr(gr_output, "reasoning", "")
-        gr_input = request.message
-        gr_timestamp = time.time() * 1000
-        for g in current_agent.input_guardrails:
-            guardrail_checks.append(
-                GuardrailCheck(
-                    id=uuid4().hex,
-                    name=_get_guardrail_name(g),
-                    input=gr_input,
-                    reasoning=(gr_reasoning if g == failed else ""),
-                    passed=(g != failed),
-                    timestamp=gr_timestamp,
-                )
-            )
-        refusal = "Sorry, I can only answer questions related to sports news."
-        
-        # Send guardrail failure as a stream event
-        error_response = {
-            "type": "error",
-            "data": {
-                "conversation_id": request.conversation_id,
-                "current_agent": current_agent.name,
-                "message": refusal,
-                "guardrails": [gc.model_dump() for gc in guardrail_checks],
-                "timestamp": time.time()
-            }
-        }
-        yield f"data: {json.dumps(error_response)}\n\n"
-        return
-
+    # If we reach here, it means none of the guardrails were triggered
     messages: List[MessageResponse] = []
     events: List[AgentEvent] = []
 
@@ -268,78 +240,121 @@ async def generate_chat_stream(
         "data": {
             "conversation_id": request.conversation_id or str(uuid4()),
             "current_agent": agent_id,
-            "timestamp": time.time()
-        }
+            "timestamp": time.time(),
+        },
     }
     yield f"data: {json.dumps(initial_response)}\n\n"
 
-    async for event in result.stream_events():
-        if event.type == "run_item_stream_event":
-            print(f"Got event of type {event.item.__class__.__name__}")
+    try:
+        async for event in result.stream_events():
+            if event.type == "run_item_stream_event":
+                print(f"Got event of type {event.item.__class__.__name__}")
 
-            if isinstance(event.item, ToolCallItem):
-                tool_name = getattr(event.item.raw_item, "name", None)
-                raw_args = getattr(event.item.raw_item, "arguments", None)
-                tool_args: Any = raw_args
-                if isinstance(raw_args, str):
-                    try:
-                        tool_args = json.loads(raw_args)
-                    except Exception:
-                        pass
-                
-                agent_event = AgentEvent(
-                    id=uuid4().hex,
-                    type="tool_call",
-                    agent=event.item.agent.name,
-                    content=tool_name or "",
-                    metadata={"tool_args": tool_args},
-                    timestamp=time.time()
-                )
-                events.append(agent_event)
-                
-                # Stream the tool call event
-                stream_event = {
-                    "type": "tool_call",
-                    "data": f"Agent: {agent_event.agent}, Tool: {tool_name or 'unknown'}",
-                    #"data": agent_event.model_dump()
-                }
-                yield f"data: {json.dumps(stream_event)}\n\n"
-                
-                # If the tool is display_seat_map, send a special message so the UI can render the seat selector.
-                if tool_name == "display_seat_map":
-                    message_response = MessageResponse(
-                        content="DISPLAY_SEAT_MAP",
+                if isinstance(event.item, ToolCallItem):
+                    tool_name = getattr(event.item.raw_item, "name", None)
+                    raw_args = getattr(event.item.raw_item, "arguments", None)
+                    tool_args: Any = raw_args
+                    if isinstance(raw_args, str):
+                        try:
+                            tool_args = json.loads(raw_args)
+                        except Exception:
+                            pass
+
+                    agent_event = AgentEvent(
+                        id=uuid4().hex,
+                        type="tool_call",
                         agent=event.item.agent.name,
+                        content=tool_name or "",
+                        metadata={"tool_args": tool_args},
+                        timestamp=time.time(),
                     )
-                    messages.append(message_response)
-                    
-                    # Stream the special message
-                    message_event = {
-                        "type": "message",
-                        "data": message_response.model_dump()
-                    }
-                    yield f"data: {json.dumps(message_event)}\n\n"
-                    
-            elif isinstance(event.item, ToolCallOutputItem):
-                agent_event = AgentEvent(
-                    id=uuid4().hex,
-                    type="tool_output",
-                    agent=event.item.agent.name,
-                    content=str(event.item.output),
-                    metadata={"tool_result": event.item.output},
-                    timestamp=time.time()
-                )
-                events.append(agent_event)
-                
-                # Stream the tool output event
-                stream_event = {
-                    "type": "tool_output",
-                    #"data": agent_event.model_dump()
-                    "data": ' '.join(str(agent_event.model_dump()).split()[:5])
-                }
-                yield f"data: {json.dumps(stream_event)}\n\n"
+                    events.append(agent_event)
 
-    logger.info(result.final_output)
+                    # Stream the tool call event
+                    stream_event = {
+                        "type": "tool_call",
+                        "data": f"Agent: {agent_event.agent}, Tool: {tool_name or 'unknown'}",
+                        # "data": agent_event.model_dump()
+                    }
+                    yield f"data: {json.dumps(stream_event)}\n\n"
+
+                    # If the tool is display_seat_map, send a special message so the UI can render the seat selector.
+                    if tool_name == "display_seat_map":
+                        message_response = MessageResponse(
+                            content="DISPLAY_SEAT_MAP",
+                            agent=event.item.agent.name,
+                        )
+                        messages.append(message_response)
+
+                        # Stream the special message
+                        message_event = {
+                            "type": "message",
+                            "data": message_response.model_dump(),
+                        }
+                        yield f"data: {json.dumps(message_event)}\n\n"
+
+                elif isinstance(event.item, ToolCallOutputItem):
+                    agent_event = AgentEvent(
+                        id=uuid4().hex,
+                        type="tool_output",
+                        agent=event.item.agent.name,
+                        content=str(event.item.output),
+                        metadata={"tool_result": event.item.output},
+                        timestamp=time.time(),
+                    )
+                    events.append(agent_event)
+
+                    # Stream the tool output event
+                    stream_event = {
+                        "type": "tool_output",
+                        # "data": agent_event.model_dump()
+                        "data": " ".join(str(agent_event.model_dump()).split()[:10]),
+                    }
+                    yield f"data: {json.dumps(stream_event)}\n\n"
+    except InputGuardrailTripwireTriggered as e:
+        # Guardrail was triggered during streaming
+        logger.info(f"Guardrail triggered during streaming: {e}")
+        
+        # Build guardrail response
+        failed = e.guardrail_result.guardrail
+        gr_output = e.guardrail_result.output.output_info
+        gr_reasoning = getattr(gr_output, "reasoning", "")
+        gr_timestamp = time.time() * 1000
+        
+        # Create guardrail checks for all agent guardrails
+        if current_agent and hasattr(current_agent, 'input_guardrails') and current_agent.input_guardrails:
+            for g in current_agent.input_guardrails:
+                guardrail_checks.append(
+                    GuardrailCheck(
+                        id=uuid4().hex,
+                        name=_get_guardrail_name(g),
+                        input=request.message,
+                        reasoning=(gr_reasoning if g == failed else ""),
+                        passed=(g != failed),
+                        timestamp=gr_timestamp,
+                    )
+                )
+            logger.info(f"guardrail_checks: {guardrail_checks}")
+        
+        # Send error response
+        error_response = {
+            "type": "error",
+            "data": {
+                "conversation_id": request.conversation_id,
+                "current_agent": getattr(current_agent, 'name', 'unknown') if current_agent else 'none',
+                "message": "Sorry, I can only answer questions related to sports or give sports results.",
+                "guardrails": [gc.model_dump() for gc in guardrail_checks],
+                "timestamp": time.time(),
+            },
+        }
+        yield f"data: {json.dumps(error_response)}\n\n"
+        return
+
+    if result:
+        logger.info(result.final_output)
+        final_output = result.final_output
+    else:
+        final_output = ""
 
     # Send final response with all collected data
     final_response = {
@@ -352,12 +367,12 @@ async def generate_chat_stream(
             "context": {},
             "agents": [],
             "guardrails": [],
-            "final_output": result.final_output,
-            "timestamp": time.time()
-        }
+            "final_output": final_output,
+            "timestamp": time.time(),
+        },
     }
-    yield f"data: {json.dumps(result.final_output)}\n\n"
-    #yield f"data: {json.dumps(final_response)}\n\n"
+    #yield f"data: {json.dumps(result.final_output)}\n\n"
+    yield f"data: {json.dumps(final_response)}\n\n"
 
 
 @app.post("/chat")
@@ -372,7 +387,7 @@ async def chat_stream_endpoint(
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "Content-Type": "text/event-stream",
-        }
+        },
     )
 
 
